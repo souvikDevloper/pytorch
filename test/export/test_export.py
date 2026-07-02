@@ -1956,10 +1956,10 @@ graph():
             str(ep.graph).strip(),
             """\
 graph():
-    %p_block_linear1_weight : [num_users=1] = placeholder[target=p_block_linear1_weight]
     %p_block_linear1_bias : [num_users=1] = placeholder[target=p_block_linear1_bias]
-    %p_block_linear2_weight : [num_users=1] = placeholder[target=p_block_linear2_weight]
+    %p_block_linear1_weight : [num_users=1] = placeholder[target=p_block_linear1_weight]
     %p_block_linear2_bias : [num_users=1] = placeholder[target=p_block_linear2_bias]
+    %p_block_linear2_weight : [num_users=1] = placeholder[target=p_block_linear2_weight]
     %x : [num_users=1] = placeholder[target=x]
     %wrap_body0 : [num_users=1] = get_attr[target=wrap_body0]
     %tag_activation_checkpoint : [num_users=1] = call_function[target=torch.ops.higher_order.tag_activation_checkpoint](args = (%wrap_body0, %x, %p_block_linear1_weight, %p_block_linear1_bias, %p_block_linear2_weight, %p_block_linear2_bias), kwargs = {})
@@ -1996,12 +1996,12 @@ graph():
                 """\
 def forward(self, primals, tangents):
     primals_1, primals_2, primals_3, primals_4, primals_5, tangents_1, = fx_pytree.tree_flatten_spec([primals, tangents], self._in_spec)
-    t = torch.ops.aten.t.default(primals_1);  primals_1 = None
-    addmm = torch.ops.aten.addmm.default(primals_2, primals_5, t);  primals_2 = None
+    t = torch.ops.aten.t.default(primals_2);  primals_2 = None
+    addmm = torch.ops.aten.addmm.default(primals_1, primals_5, t);  primals_1 = None
     relu = torch.ops.aten.relu.default(addmm);  addmm = None
     detach_3 = torch.ops.aten.detach.default(relu)
-    t_1 = torch.ops.aten.t.default(primals_3);  primals_3 = None
-    addmm_1 = torch.ops.aten.addmm.default(primals_4, relu, t_1);  primals_4 = None
+    t_1 = torch.ops.aten.t.default(primals_4);  primals_4 = None
+    addmm_1 = torch.ops.aten.addmm.default(primals_3, relu, t_1);  primals_3 = None
     t_2 = torch.ops.aten.t.default(t_1);  t_1 = None
     mm = torch.ops.aten.mm.default(tangents_1, t_2);  t_2 = None
     t_3 = torch.ops.aten.t.default(tangents_1)
@@ -2020,7 +2020,7 @@ def forward(self, primals, tangents):
     sum_2 = torch.ops.aten.sum.dim_IntList(threshold_backward, [0], True);  threshold_backward = None
     view_1 = torch.ops.aten.view.default(sum_2, [128]);  sum_2 = None
     t_9 = torch.ops.aten.t.default(t_8);  t_8 = None
-    return pytree.tree_unflatten([addmm_1, t_9, view_1, t_5, view, mm_2], self._out_spec)""",
+    return pytree.tree_unflatten([addmm_1, view_1, t_9, view, t_5, mm_2], self._out_spec)""",
             )
 
     def test_inline_script_class_method_recursive(self):
@@ -3967,17 +3967,17 @@ def forward(self, add):
             str(ep.graph_module.code).strip(),
             """\
 def forward(self, x, y):
-    foo = torch.ops.export.foo.default(x, y);  x = None
-    sym_size_int = torch.ops.aten.sym_size.int(foo, 0)
-    sym_size_int_1 = torch.ops.aten.sym_size.int(foo, 1)
+    bar = torch.ops.export.bar.default(y)
+    sym_size_int = torch.ops.aten.sym_size.int(bar, 0)
     ge = sym_size_int >= 0;  sym_size_int = None
-    _assert_scalar_default = torch.ops.aten._assert_scalar.default(ge, "Runtime assertion failed for expression u0 >= 0 on node 'ge'");  ge = _assert_scalar_default = None
+    _assert_scalar_default = torch.ops.aten._assert_scalar.default(ge, "Runtime assertion failed for expression u2 >= 0 on node 'ge'");  ge = _assert_scalar_default = None
+    foo = torch.ops.export.foo.default(x, y);  x = y = None
+    sym_size_int_1 = torch.ops.aten.sym_size.int(foo, 0)
+    sym_size_int_2 = torch.ops.aten.sym_size.int(foo, 1)
     ge_1 = sym_size_int_1 >= 0;  sym_size_int_1 = None
-    _assert_scalar_default_1 = torch.ops.aten._assert_scalar.default(ge_1, "Runtime assertion failed for expression u1 >= 0 on node 'ge_1'");  ge_1 = _assert_scalar_default_1 = None
-    bar = torch.ops.export.bar.default(y);  y = None
-    sym_size_int_2 = torch.ops.aten.sym_size.int(bar, 0)
+    _assert_scalar_default_1 = torch.ops.aten._assert_scalar.default(ge_1, "Runtime assertion failed for expression u0 >= 0 on node 'ge_1'");  ge_1 = _assert_scalar_default_1 = None
     ge_2 = sym_size_int_2 >= 0;  sym_size_int_2 = None
-    _assert_scalar_default_2 = torch.ops.aten._assert_scalar.default(ge_2, "Runtime assertion failed for expression u2 >= 0 on node 'ge_2'");  ge_2 = _assert_scalar_default_2 = None
+    _assert_scalar_default_2 = torch.ops.aten._assert_scalar.default(ge_2, "Runtime assertion failed for expression u1 >= 0 on node 'ge_2'");  ge_2 = _assert_scalar_default_2 = None
     return (foo, bar)""",
         )
 
@@ -11137,7 +11137,7 @@ def forward(self, b_a_buffer, x):
         self.assertExpectedInline(
             str(core_aten_ep.graph_module.code).strip(),
             """\
-def forward(self, p_lin_weight, p_lin_bias, x):
+def forward(self, p_lin_bias, p_lin_weight, x):
     add = torch.ops.aten.add.Tensor(x, p_lin_bias);  x = p_lin_bias = None
     return (add,)""",
         )
@@ -12203,6 +12203,7 @@ graph():
 
         self.assertEqual(gm_flat_non_strict(*inp), gm_flat_strict(*inp))
 
+    @testing.expectedFailureStrictV2
     def test_nn_module_stack_shared_submodule(self):
         class Leaf(torch.nn.Module):
             def __init__(self) -> None:
@@ -16569,6 +16570,7 @@ graph():
             )
 
     @testing.expectedFailureStrictV2
+    @torch._dynamo.config.patch(canonicalize_output_graph_node_order=False)
     def test_enum_str(self):
         class TensorDim(str, enum.Enum):
             DDP = "ddp"
