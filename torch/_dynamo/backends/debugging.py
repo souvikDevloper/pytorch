@@ -152,6 +152,9 @@ def eager_debug(
 def torchscript(
     gm: torch.fx.GraphModule, fake_tensor_inputs: list[torch.Tensor]
 ) -> torch.jit.ScriptModule:
+    # torch.jit.script cannot script _LazyGraphModule, so rebuild a plain one
+    if isinstance(gm, torch.fx._lazy_graph_module._LazyGraphModule):
+        gm = torch.fx.GraphModule(gm, gm.graph)
     return torch.jit.script(gm)
 
 
