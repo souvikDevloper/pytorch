@@ -8,6 +8,7 @@
 #include <cstdint>
 
 #include <torch/csrc/utils/python_numbers.h>
+#include <cstring>
 #include <filesystem>
 #include <optional>
 #include <utility>
@@ -103,6 +104,39 @@ CUdeviceptr getPointer(PyObject* obj) {
 
   return dev_ptr;
 }
+
+#if !defined(USE_ROCM)
+// Mirror triton's PyCUtensorMapObject layout (nvidia/driver.c) so we can read
+// the 128-byte CUtensorMap that fill_tma_descriptor_tiled() produces. Host-side
+// TMA kernels take this descriptor as a by-value kernel parameter.
+struct PyCUtensorMapObject {
+  PyObject_HEAD
+  alignas(alignof(CUtensorMap)) CUtensorMap tensorMap;
+};
+
+// Return a pointer to the 128-byte CUtensorMap for a host-side TMA descriptor
+// argument. Supports triton's native PyCUtensorMap (fast path) and duck-typed
+// objects exposing tma_desc_cpu_ptr(). The pointer is owned by `obj`, which the
+// caller must keep alive across the synchronous kernel launch (cuLaunchKernel
+// copies the param bytes before returning).
+void* getTmaDescPtr(PyObject* obj) {
+  if (std::strcmp(
+          Py_TYPE(obj)->tp_name, "triton.backends.nvidia.PyCUtensorMap") == 0) {
+    return &reinterpret_cast<PyCUtensorMapObject*>(obj)->tensorMap;
+  }
+  // Duck-typed fallback: tma_desc_cpu_ptr() -> host pointer to a CUtensorMap.
+  THPObjectPtr method{PyObject_GetAttrString(obj, "tma_desc_cpu_ptr")};
+  TORCH_CHECK(
+      method,
+      "tensordesc argument must be a triton PyCUtensorMap or expose "
+      "tma_desc_cpu_ptr()");
+  THPObjectPtr ret{PyObject_CallNoArgs(method)};
+  TORCH_CHECK(ret, "tma_desc_cpu_ptr() call failed");
+  auto host_ptr = static_cast<uintptr_t>(THPUtils_unpackUInt64(ret));
+  TORCH_CHECK(host_ptr != 0, "tma_desc_cpu_ptr() returned NULL");
+  return reinterpret_cast<void*>(host_ptr);
+}
+#endif
 
 #define SHARED_MEM_STATIC_MAX 49152 // 48 KB
 
@@ -343,6 +377,16 @@ void parseKernelArgs(
         CUdeviceptr ptr = getPointer(item);
         *reinterpret_cast<CUdeviceptr*>(slot) = ptr;
         break;
+      }
+      case 'M': { // host-side TMA descriptor (CUtensorMap, 128-byte by-value)
+#if defined(USE_ROCM)
+        TORCH_CHECK(false, "tensordesc kernel args are not supported on ROCm");
+#else
+        // The descriptor lives in the Python arg (alive for this launch); point
+        // the kernel arg directly at its 128 bytes -- no 8-byte slot needed.
+        kernelArgs[i] = getTmaDescPtr(item);
+        continue;
+#endif
       }
       default:
         TORCH_CHECK(false, "Unknown type passed in: ", typeChar);
@@ -851,6 +895,16 @@ static PyObject* fast_launcher_vectorcall(
       case 'O': {
         *reinterpret_cast<CUdeviceptr*>(slot) = getPointerFast(item);
         break;
+      }
+      case 'M': {
+#if defined(USE_ROCM)
+        TORCH_CHECK(false, "tensordesc kernel args are not supported on ROCm");
+#else
+        // Override the pre-bound slot pointer: the kernel arg must point at the
+        // descriptor's 128 bytes (owned by `item`, alive for this launch).
+        self->kernelArgs[i] = getTmaDescPtr(item);
+        continue;
+#endif
       }
       case 'b':
         convertType<int8_t>(THPUtils_unpackInt, "int8", slot, item);
