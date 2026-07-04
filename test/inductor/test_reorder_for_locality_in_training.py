@@ -151,7 +151,7 @@ class TestReorderForLocalityInTraining(TestCase):
         self.assertEqual(rec.calls, 0)
 
 
-instantiate_device_type_tests(TestReorderForLocalityInTraining, globals())
+instantiate_device_type_tests(TestReorderForLocalityInTraining, globals(), allow_xpu=True)
 
 
 if __name__ == "__main__":
